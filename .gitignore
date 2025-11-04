@@ -1,0 +1,12 @@
+# Ignore downloaded videos and other large files
+*.mp4
+*.avi
+*.mkv
+*.webm
+*.flv
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+# VS Code
+.vscode/
