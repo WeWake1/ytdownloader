@@ -23,6 +23,8 @@ try:
 except Exception:  # ImportError or other
     YoutubeDL = None
 
+import shutil
+
 try:
     import tkinter as tk
     from tkinter import ttk
@@ -304,6 +306,12 @@ def main() -> None:
         parser.add_argument('--playlist', action='store_true', help='Download entire playlist if URL is a playlist')
 
         args = parser.parse_args()
+
+        # check ffmpeg is available
+        if shutil.which('ffmpeg') is None:
+            print('\nERROR: ffmpeg is not found on your PATH. This tool requires the ffmpeg binary to merge audio + video.')
+            print('Run `bash install_deps.sh` (macOS/Linux) or `install_deps.ps1` from PowerShell (Windows) to install the required dependencies.')
+            return
 
         if args.console:
             url, selected = get_user_input_console(args.url)

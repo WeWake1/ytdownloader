@@ -1,1 +1,4 @@
 yt-dlp
+# NOTE: ffmpeg is required (system binary) to merge audio + video. It is NOT a pip package.
+# Add the optional Python wrapper if you want to call ffmpeg functions from Python:
+ffmpeg-python

@@ -1,4 +1,14 @@
-# Ignore downloaded videos and other large files
+# Ignore downloaded videos and other local build artifacts
+*.mp4
+*.webm
+downloads/
+__pycache__/
+*.pyc
+.vscode/
+
+# OS files
+Thumbs.db
+desktop.ini# Ignore downloaded videos and other large files
 *.mp4
 *.avi
 *.mkv
