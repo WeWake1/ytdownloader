@@ -83,6 +83,17 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s', pla
         'progress_hooks': [progress_hook] if progress_hook else [],
     }
 
+    # If audio-only is selected, convert to mp3
+    if format_expr == 'bestaudio':
+        ydl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
+        # Remove merge_output_format for audio only to avoid conflicts
+        if 'merge_output_format' in ydl_opts:
+            del ydl_opts['merge_output_format']
+
     try:
         with YoutubeDL(ydl_opts) as ydl:
             print(f"\nStarting download (format: {format_expr})...")
