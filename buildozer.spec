@@ -16,8 +16,13 @@ version = 0.1
 # `ffmpeg` is the important one: python-for-android's recipe compiles the real
 # ffmpeg CLI and installs it as libffmpegbin.so inside nativeLibraryDir, which
 # is the only place Android 10+ still permits executing a binary from.
-# charset-normalizer is pinned because newer releases fail to cross-compile.
-requirements = python3,kivy,openssl,certifi,requests,charset-normalizer==3.4.5,yt-dlp==2026.7.4,ffmpeg,androidstorage4kivy,pyjnius
+#
+# Deliberately minimal: yt-dlp declares no mandatory dependencies (everything in
+# its metadata sits behind an `extra ==` marker) and uses stdlib urllib by
+# default. `requests` was pulling charset-normalizer transitively, which failed
+# to cross-compile, so it is omitted rather than pinned around. certifi is kept
+# because yt-dlp uses it for CA certificates when present.
+requirements = python3,kivy,openssl,certifi,yt-dlp==2026.7.4,ffmpeg,androidstorage4kivy,pyjnius
 
 orientation = portrait
 fullscreen = 0
