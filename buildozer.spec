@@ -9,7 +9,7 @@ source.include_exts = py,kv,png,jpg,json,ini
 # Keep the desktop-only files out of the APK. ytdownloader.py imports tkinter,
 # which does not exist on Android; it is never imported by main.py, but there is
 # no reason to ship it.
-source.exclude_patterns = ytdownloader.py,install_deps.*,README.md,.github/*
+source.exclude_patterns = ytdownloader.py,install_deps.*,README.md,.github/*,p4a-recipes/*
 
 version = 0.1
 
@@ -49,6 +49,10 @@ android.archs = arm64-v8a
 android.allow_backup = 1
 android.release_artifact = apk
 android.debug_artifact = apk
+
+# Local recipe overrides. See p4a-recipes/kivy/__init__.py for why the
+# kivy recipe's python_depends are patched.
+p4a.local_recipes = ./p4a-recipes
 
 [buildozer]
 
