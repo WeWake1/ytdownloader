@@ -31,11 +31,26 @@ Remove this override once p4a passes --platform to its install step, or once
 charset-normalizer's Android wheels install cleanly.
 """
 
+import os.path
+
+from pythonforandroid.recipes import kivy as _upstream_module
 from pythonforandroid.recipes.kivy import recipe as _upstream_recipe
 
 
 class PatchedKivyRecipe(type(_upstream_recipe)):
     python_depends = ['certifi', 'filetype']
+
+    def get_recipe_dir(self):
+        """Resolve recipe files from the upstream recipe directory.
+
+        The base implementation returns the *local* recipe directory whenever
+        one exists, so the upstream kivy patches (sdl-gl-swapwindow-nogil.patch,
+        use_cython.patch, no-ast-str.patch) would be looked for next to this
+        file and not found. Only python_depends is being changed here, so keep
+        every file lookup pointing at the real recipe rather than vendoring
+        copies of the patches that would then need to track upstream.
+        """
+        return os.path.dirname(_upstream_module.__file__)
 
 
 recipe = PatchedKivyRecipe()
