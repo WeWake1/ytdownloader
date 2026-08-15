@@ -103,6 +103,15 @@ Android 10+ refuses to execute binaries from the app's data directory (a W^X res
 
 The app shows an ffmpeg self-test in its status line at startup, so a packaging problem is visible immediately rather than surfacing mid-download.
 
+**Pass the full file path, not the directory.** This was verified by pointing yt-dlp at a real ffmpeg binary renamed to `libffmpegbin.so`, reproducing Android's layout (no `ffprobe` beside it):
+
+| `ffmpeg_location` | Result |
+| --- | --- |
+| `.../libffmpegbin.so` (full path) | works — merging and MP3 both succeed |
+| `.../` (its directory) | **fails silently** — yt-dlp scans for files named `ffmpeg`/`ffprobe` and finds neither |
+
+Both a video+audio merge and a 192kbps MP3 conversion were confirmed working through the renamed binary, so the Android ffmpeg path is proven independently of any APK build.
+
 ### Keeping yt-dlp current
 
 YouTube changes often and a pinned yt-dlp goes stale within months. The workflow runs weekly, bumps yt-dlp to the newest release, rebuilds, and publishes a new APK.

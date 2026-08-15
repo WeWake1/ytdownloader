@@ -32,6 +32,11 @@ def resolve_ffmpeg() -> Optional[str]:
 
     On Android, looks inside the app's native library directory. On desktop,
     falls back to a normal PATH lookup.
+
+    Always returns the full path to the *file*, never its directory. yt-dlp
+    accepts either, but when given a directory it scans for entries literally
+    named `ffmpeg`/`ffprobe` -- which never matches `libffmpegbin.so`, leaving
+    ffmpeg silently unavailable. Verified: full path works, directory does not.
     """
     try:
         from jnius import autoclass  # only present on Android
