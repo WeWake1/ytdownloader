@@ -1,0 +1,98 @@
+name: Build Android APK
+
+# YouTube changes constantly and a pinned yt-dlp goes stale within months, so
+# the weekly run bumps yt-dlp and rebuilds before the app breaks.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Rebuild even if yt-dlp is already current'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '0 2 * * 1'   # Mondays 02:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bump yt-dlp to the latest release
+        id: bump
+        run: |
+          CURRENT=$(grep -oE 'yt-dlp==[0-9.]+' buildozer.spec | cut -d= -f3)
+          LATEST=$(curl -s https://pypi.org/pypi/yt-dlp/json | python -c "import sys,json;print(json.load(sys.stdin)['info']['version'])")
+          echo "current=$CURRENT latest=$LATEST"
+          if [ "$CURRENT" != "$LATEST" ]; then
+            sed -i "s/yt-dlp==[0-9.]*/yt-dlp==$LATEST/" buildozer.spec
+            sed -i "s/^yt-dlp==.*/yt-dlp==$LATEST/" requirements.txt
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+
+          # A weekly run with no new yt-dlp has nothing to rebuild, and the
+          # ffmpeg compile is far too slow to spend on a no-op.
+          if [ "${{ github.event_name }}" != "schedule" ] \
+             || [ "$CURRENT" != "$LATEST" ] \
+             || [ "${{ github.event.inputs.force_update }}" = "true" ]; then
+            echo "build=true" >> $GITHUB_OUTPUT
+          else
+            echo "build=false" >> $GITHUB_OUTPUT
+            echo "yt-dlp already current; skipping rebuild."
+          fi
+
+      - name: Commit the bump
+        if: steps.bump.outputs.changed == 'true' && github.event_name == 'schedule'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump yt-dlp to ${{ steps.bump.outputs.version }}"
+          git push
+
+      # The ffmpeg recipe compiles from source, so the first build takes
+      # roughly 30-60 minutes. Caching makes later runs far quicker.
+      - name: Cache buildozer state
+        if: steps.bump.outputs.build == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: buildozer-
+
+      - name: Build APK
+        if: steps.bump.outputs.build == 'true'
+        uses: ArtemSBulgakov/buildozer-action@v1.2.0
+        id: buildozer
+        with:
+          command: buildozer android debug
+          buildozer_version: stable
+
+      - uses: actions/upload-artifact@v4
+        if: steps.bump.outputs.build == 'true'
+        with:
+          name: ytdownloader-apk
+          path: ${{ steps.buildozer.outputs.filename }}
+
+      - name: Publish release
+        if: steps.bump.outputs.build == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: yt-dlp ${{ steps.bump.outputs.version }} (build ${{ github.run_number }})
+          files: ${{ steps.buildozer.outputs.filename }}
+          generate_release_notes: true

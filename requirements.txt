@@ -1,4 +1,8 @@
-yt-dlp
+yt-dlp==2026.7.4
 # NOTE: ffmpeg is required (system binary) to merge audio + video. It is NOT a pip package.
+# On Android it is bundled into the APK instead - see buildozer.spec.
 # Add the optional Python wrapper if you want to call ffmpeg functions from Python:
 ffmpeg-python
+
+# yt-dlp requires Python 3.10 or newer. macOS system Python is 3.9, so use a
+# newer interpreter (e.g. `brew install python@3.12`) for the desktop app.
