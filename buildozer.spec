@@ -30,6 +30,13 @@ android.api = 34
 android.minapi = 24
 android.ndk_api = 24
 
+# Required for unattended builds. This defaults to False, and without it
+# buildozer runs sdkmanager but never answers its interactive (y/N) license
+# prompt, so build-tools is never installed and the build dies with the
+# misleading "Aidl not found" -- aidl lives inside build-tools.
+# Setting this accepts Google's Android SDK licence terms.
+android.accept_sdk_license = True
+
 # arm64-v8a only. Building every ABI multiplies the (already slow) ffmpeg
 # compile; every phone from roughly 2017 onward is arm64.
 android.archs = arm64-v8a
