@@ -119,6 +119,22 @@ jobs:
           echo "path=$APK" >> $GITHUB_OUTPUT
           echo "Built $APK ($(du -h "$APK" | cut -f1))"
 
+      # The whole Android design rests on ffmpeg shipping as libffmpegbin.so in
+      # the native library directory, the only place Android 10+ will execute a
+      # binary from. Assert it rather than trusting the build.
+      - name: Verify ffmpeg is bundled
+        if: steps.bump.outputs.build == 'true'
+        run: |
+          APK="${{ steps.apk.outputs.path }}"
+          echo "Inspecting $APK"
+          if ! unzip -l "$APK" | grep -q 'lib/arm64-v8a/libffmpegbin\.so'; then
+            echo "::error::libffmpegbin.so missing from the APK - ffmpeg would be unavailable at runtime"
+            unzip -l "$APK" | grep 'lib/arm64-v8a/' || echo "(no arm64-v8a libs at all)"
+            exit 1
+          fi
+          echo "--- native libraries in APK ---"
+          unzip -l "$APK" | grep 'lib/arm64-v8a/' | awk '{printf "  %10s  %s\n", $1, $4}'
+
       - uses: actions/upload-artifact@v4
         if: steps.bump.outputs.build == 'true'
         with:
