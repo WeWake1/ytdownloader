@@ -4,9 +4,7 @@ name: Build Android APK
 # the weekly run bumps yt-dlp and rebuilds before the app breaks.
 on:
   push:
-    # android-app is here so the APK can be built and tested before merging.
-    # Drop it once this work lands on main.
-    branches: [main, android-app]
+    branches: [main]
     paths-ignore: ['**.md']
   workflow_dispatch:
     inputs:
