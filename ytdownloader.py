@@ -128,14 +128,12 @@ def get_user_input_gui() -> tuple[str, str, str]:
 
     def download_thread(url, format_expr, outtmpl, playlist):
         try:
-            ok = download(url, format_expr, outtmpl, playlist, progress_hook,
-                          ffmpeg_location=ffmpeg_path)
-            if ok:
-                root.after(0, lambda: status_label.config(text="Download finished."))
-            else:
-                root.after(0, lambda: status_label.config(text="Download failed."))
+            download(url, format_expr, outtmpl, playlist, progress_hook,
+                     ffmpeg_location=ffmpeg_path)
+            root.after(0, lambda: status_label.config(text="Download finished."))
         except Exception as e:
-            root.after(0, lambda: status_label.config(text=f"Download error: {e}"))
+            msg = f"Download failed: {type(e).__name__}: {e}"
+            root.after(0, lambda: status_label.config(text=msg))
         finally:
             root.after(0, lambda: download_button.config(state='normal'))
 
@@ -256,11 +254,11 @@ def main() -> None:
         format_expr = choose_format_expr_for_height(selected)
 
         print(f"\nSelected: {selected} -> using format expression: {format_expr}")
-        ok = download(url, format_expr, outtmpl, args.playlist, ffmpeg_location=ffmpeg_path)
-        if ok:
+        try:
+            download(url, format_expr, outtmpl, args.playlist, ffmpeg_location=ffmpeg_path)
             print('\nDownload finished.')
-        else:
-            print('\nDownload did not complete.')
+        except Exception as e:
+            print(f'\nDownload failed: {type(e).__name__}: {e}')
     except Exception as e:
         print(f"An error occurred: {e}")
         import traceback

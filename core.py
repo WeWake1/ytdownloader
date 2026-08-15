@@ -180,6 +180,10 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
 
     `ffmpeg_location` should be the path returned by `resolve_ffmpeg()`. When it
     is None, yt-dlp falls back to looking for ffmpeg on PATH.
+
+    Returns True on success and raises on failure. Errors are deliberately not
+    swallowed into a False return: on Android the exception text is the only
+    diagnostic available, and callers show it to the user.
     """
     if YoutubeDL is None:
         log.error('yt-dlp is not installed. Install with: pip install -r requirements.txt')
@@ -212,11 +216,7 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
         if 'merge_output_format' in ydl_opts:
             del ydl_opts['merge_output_format']
 
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            log.info('Starting download (format: %s)...', format_expr)
-            ydl.download([url])
-        return True
-    except Exception as e:
-        log.error('Download failed: %s', e)
-        return False
+    with YoutubeDL(ydl_opts) as ydl:
+        log.info('Starting download (format: %s)...', format_expr)
+        ydl.download([url])
+    return True
