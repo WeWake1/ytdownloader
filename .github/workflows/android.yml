@@ -83,6 +83,34 @@ jobs:
       # openjdk-17-jdk, so the PPA was redundant anyway.
       # The image entrypoint maps the container user to the bind mount's
       # UID/GID, so files it writes stay owned by the runner.
+      # Split into separate steps on purpose: this repo's Actions logs are not
+      # readable without admin auth, but the jobs API exposes per-step
+      # pass/fail publicly. Isolating each stage makes the failure point
+      # visible from that API alone.
+      - name: Diag - docker present
+        if: steps.bump.outputs.build == 'true'
+        run: docker --version
+
+      - name: Diag - pull buildozer image
+        if: steps.bump.outputs.build == 'true'
+        run: docker pull ghcr.io/kivy/buildozer:latest
+
+      - name: Diag - run container (no cache mount)
+        if: steps.bump.outputs.build == 'true'
+        run: |
+          docker run --rm \
+            --volume "$PWD":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest --version
+
+      - name: Diag - run container (with cache mount)
+        if: steps.bump.outputs.build == 'true'
+        run: |
+          mkdir -p "$HOME/.buildozer"
+          docker run --rm \
+            --volume "$HOME/.buildozer":/home/user/.buildozer \
+            --volume "$PWD":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest --version
+
       - name: Build APK
         if: steps.bump.outputs.build == 'true'
         run: |
