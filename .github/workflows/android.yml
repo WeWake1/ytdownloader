@@ -83,42 +83,30 @@ jobs:
       # openjdk-17-jdk, so the PPA was redundant anyway.
       # The image entrypoint maps the container user to the bind mount's
       # UID/GID, so files it writes stay owned by the runner.
-      # Split into separate steps on purpose: this repo's Actions logs are not
-      # readable without admin auth, but the jobs API exposes per-step
-      # pass/fail publicly. Isolating each stage makes the failure point
-      # visible from that API alone.
-      - name: Diag - docker present
-        if: steps.bump.outputs.build == 'true'
-        run: docker --version
-
-      - name: Diag - pull buildozer image
+      - name: Pull buildozer image
         if: steps.bump.outputs.build == 'true'
         run: docker pull ghcr.io/kivy/buildozer:latest
 
-      - name: Diag - run container (no cache mount)
-        if: steps.bump.outputs.build == 'true'
-        run: |
-          docker run --rm \
-            --volume "$PWD":/home/user/hostcwd \
-            ghcr.io/kivy/buildozer:latest --version
-
-      - name: Diag - run container (with cache mount)
-        if: steps.bump.outputs.build == 'true'
-        run: |
-          mkdir -p "$HOME/.buildozer"
-          docker run --rm \
-            --volume "$HOME/.buildozer":/home/user/.buildozer \
-            --volume "$PWD":/home/user/hostcwd \
-            ghcr.io/kivy/buildozer:latest --version
-
+      # This repo's Actions logs need admin auth to read, but check-run
+      # annotations are public, so on failure the build echoes the relevant
+      # error lines as ::error:: annotations to make them retrievable.
       - name: Build APK
         if: steps.bump.outputs.build == 'true'
         run: |
+          set -o pipefail
           mkdir -p "$HOME/.buildozer"
-          docker run --rm \
-            --volume "$HOME/.buildozer":/home/user/.buildozer \
-            --volume "$PWD":/home/user/hostcwd \
-            ghcr.io/kivy/buildozer:latest android debug
+          if ! docker run --rm \
+              --volume "$HOME/.buildozer":/home/user/.buildozer \
+              --volume "$PWD":/home/user/hostcwd \
+              ghcr.io/kivy/buildozer:latest android debug 2>&1 | tee build.log; then
+            sed -e 's/\x1b\[[0-9;]*m//g' build.log | tr -d '\r' > clean.log
+            {
+              grep -iE 'error|exception|traceback|no such|not found|failed|denied' clean.log | tail -5
+              tail -5 clean.log
+            } | cut -c1-240 | grep -v '^[[:space:]]*$' | head -10 \
+              | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
 
       - name: Locate APK
         id: apk
