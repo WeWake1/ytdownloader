@@ -30,11 +30,17 @@ from core import (
     build_quality_options,
     choose_format_expr_for_height,
     download,
+    ensure_writable_std_streams,
     fetch_info,
     list_available_resolutions,
     parse_quality_choice,
     resolve_ffmpeg,
 )
+
+# Do this before anything can write to stdout: on Android these are not always
+# real file objects, and yt-dlp writing to them fails with
+# "'str' object has no attribute 'write'".
+ensure_writable_std_streams()
 
 IS_ANDROID = platform == 'android'
 PROMPT = "Enter URL and tap 'Load Qualities'"
@@ -163,7 +169,9 @@ class DownloaderLayout(BoxLayout):
             title = (info.get('title') or '')[:50]
             self.set_status(f'Loaded: {title}')
         except Exception as e:
-            self.set_status(f'Failed to fetch video info: {e}')
+            # Include the exception type: on-device failures are hard to
+            # diagnose without it, and the message alone is often ambiguous.
+            self.set_status(f'Failed to fetch video info: {type(e).__name__}: {e}')
         finally:
             self.set_buttons_enabled(True)
 

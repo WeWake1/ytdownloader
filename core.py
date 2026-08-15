@@ -10,14 +10,69 @@ ffmpeg binary in the very different places it lives on desktop vs Android.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
+import sys
 from typing import List, Optional
 
 try:
     from yt_dlp import YoutubeDL
 except Exception:  # ImportError or other
     YoutubeDL = None
+
+log = logging.getLogger(__name__)
+
+
+class _NullStream:
+    """Stand-in for a missing or unusable stdout/stderr."""
+
+    def write(self, _data):
+        return 0
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+
+def ensure_writable_std_streams() -> None:
+    """Guarantee sys.stdout/sys.stderr are writable file-like objects.
+
+    On Android, p4a does not always leave these as real file objects, and
+    anything that writes to them then fails with
+
+        AttributeError: 'str' object has no attribute 'write'
+
+    Only replaces a stream that is missing or has no write(), so a working
+    console (desktop) or Kivy's Android log redirection is left alone.
+    """
+    for name in ('stdout', 'stderr'):
+        stream = getattr(sys, name, None)
+        if stream is None or not hasattr(stream, 'write'):
+            setattr(sys, name, _NullStream())
+
+
+class _YtdlpLogger:
+    """Route yt-dlp's output through logging rather than stdout.
+
+    yt-dlp only consults `logger` before touching its output files, so passing
+    this keeps it away from sys.stdout entirely -- which is what breaks on
+    Android.
+    """
+
+    def debug(self, msg):
+        log.debug(msg)
+
+    def info(self, msg):
+        log.info(msg)
+
+    def warning(self, msg):
+        log.warning(msg)
+
+    def error(self, msg):
+        log.error(msg)
 
 
 # On Android the ffmpeg CLI is shipped disguised as a shared library, because
@@ -88,7 +143,9 @@ def fetch_info(url: str) -> dict:
     """Fetch video metadata without downloading. Raises on failure."""
     if YoutubeDL is None:
         raise RuntimeError('yt-dlp is not installed. Install with: pip install -r requirements.txt')
-    with YoutubeDL({'quiet': True}) as ydl:
+    ensure_writable_std_streams()
+    opts = {'quiet': True, 'no_warnings': True, 'logger': _YtdlpLogger()}
+    with YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
 
 
@@ -125,9 +182,10 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
     is None, yt-dlp falls back to looking for ffmpeg on PATH.
     """
     if YoutubeDL is None:
-        print('\nyt-dlp is not installed. Install dependencies with:')
-        print('  pip install -r requirements.txt')
+        log.error('yt-dlp is not installed. Install with: pip install -r requirements.txt')
         return False
+
+    ensure_writable_std_streams()
 
     ydl_opts = {
         'format': format_expr,
@@ -136,6 +194,8 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
         # Ask yt-dlp to merge into mp4 if possible (requires ffmpeg)
         'merge_output_format': 'mp4',
         'progress_hooks': [progress_hook] if progress_hook else [],
+        # Keep yt-dlp off sys.stdout; see _YtdlpLogger.
+        'logger': _YtdlpLogger(),
     }
 
     if ffmpeg_location:
@@ -154,9 +214,9 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
-            print(f"\nStarting download (format: {format_expr})...")
+            log.info('Starting download (format: %s)...', format_expr)
             ydl.download([url])
         return True
     except Exception as e:
-        print('Download failed:', e)
+        log.error('Download failed: %s', e)
         return False
