@@ -1,13 +1,12 @@
-"""Simple interactive YouTube downloader using yt-dlp.
+"""Simple interactive YouTube downloader using yt-dlp (desktop entry point).
 
 Usage:
-  - Run without args: it will prompt for a YouTube URL and a quality choice.
+  - Run without args: opens the GUI.
   - Or pass the URL as the first argument: python ytdownloader.py <url>
-  - Options: --output <folder>, --gui, --playlist
+  - Options: --output <folder>, --console, --playlist
 
-The script lists available resolutions and lets you choose one. It will
-attempt to download best video+audio for the chosen resolution and merge
-them into an MP4 when possible.
+The download logic lives in `core.py`, which is shared with the Android app.
+This file is only the desktop (tkinter / console) interface.
 """
 
 from __future__ import annotations
@@ -16,14 +15,18 @@ import sys
 import os
 import argparse
 import threading
-from typing import List, Optional
+from typing import Optional
 
-try:
-    from yt_dlp import YoutubeDL
-except Exception:  # ImportError or other
-    YoutubeDL = None
-
-import shutil
+from core import (
+    YoutubeDL,
+    build_quality_options,
+    choose_format_expr_for_height,
+    download,
+    fetch_info,
+    list_available_resolutions,
+    parse_quality_choice,
+    resolve_ffmpeg,
+)
 
 try:
     import tkinter as tk
@@ -35,81 +38,14 @@ except ImportError:
     ttk = None
 
 
-def list_available_resolutions(info: dict) -> List[int]:
-    """Return sorted list of available video heights (integers) in descending order."""
-    formats = info.get('formats', []) if info else []
-    heights = set()
-    for f in formats:
-        # Only consider formats that contain video
-        vcodec = f.get('vcodec')
-        height = f.get('height')
-        if vcodec and vcodec != 'none' and isinstance(height, int):
-            heights.add(height)
-    return sorted(heights, reverse=True)
-
-
-def choose_format_expr_for_height(height) -> str:
-    """Return a yt-dlp format expression for the given height or special keys.
-
-    height can be an int (e.g. 1080), or the strings 'best' or 'audio'.
-    """
-    if height == 'best':
-        return 'bestvideo+bestaudio/best'
-    if height == 'audio':
-        return 'bestaudio'
-    # numeric height
-    try:
-        h = int(height)
-        # Prefer merged bestvideo (<=h) + bestaudio, fallback to best (<=h)
-        # To fix audio issues, prefer more compatible formats: h264 + aac
-        return f"bestvideo[height<={h}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={h}]+bestaudio/best[height<={h}]"
-    except Exception:
-        return 'best'
-
-
-def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s', playlist: bool = False, progress_hook=None) -> bool:
-    if YoutubeDL is None:
-        print('\nyt-dlp is not installed. Install dependencies with:')
-        print('  pip install -r requirements.txt')
-        return False
-
-    ydl_opts = {
-        'format': format_expr,
-        'outtmpl': outtmpl,
-        'noplaylist': not playlist,
-        # Ask yt-dlp to merge into mp4 if possible (requires ffmpeg on PATH)
-        'merge_output_format': 'mp4',
-        # show progress on console
-        'progress_hooks': [progress_hook] if progress_hook else [],
-    }
-
-    # If audio-only is selected, convert to mp3
-    if format_expr == 'bestaudio':
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
-        # Remove merge_output_format for audio only to avoid conflicts
-        if 'merge_output_format' in ydl_opts:
-            del ydl_opts['merge_output_format']
-
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            print(f"\nStarting download (format: {format_expr})...")
-            ydl.download([url])
-        return True
-    except Exception as e:
-        print('Download failed:', e)
-        return False
-
-
 def get_user_input_gui() -> tuple[str, str, str]:
     """Get URL, quality, and output folder via tkinter GUI."""
     if tk is None or ttk is None:
         print("tkinter not available. Falling back to console input.")
         url, selected = get_user_input_console()
         return url, selected, '.'
+
+    ffmpeg_path = resolve_ffmpeg()
 
     root = tk.Tk()
     root.title("YouTube Downloader")
@@ -159,15 +95,9 @@ def get_user_input_gui() -> tuple[str, str, str]:
             return
 
         try:
-            ydl = YoutubeDL({'quiet': True})
-            info = ydl.extract_info(url, download=False)
+            info = fetch_info(url)
             heights = list_available_resolutions(info)
-            options = []
-            if heights:
-                options.extend([f"{h}p" for h in heights])
-            options.append("best (best available)")
-            options.append("audio-only")
-            quality_combo['values'] = options
+            quality_combo['values'] = build_quality_options(heights)
             quality_combo.current(0)
             status_label.config(text="Qualities loaded.")
         except Exception as e:
@@ -198,7 +128,8 @@ def get_user_input_gui() -> tuple[str, str, str]:
 
     def download_thread(url, format_expr, outtmpl, playlist):
         try:
-            ok = download(url, format_expr, outtmpl, playlist, progress_hook)
+            ok = download(url, format_expr, outtmpl, playlist, progress_hook,
+                          ffmpeg_location=ffmpeg_path)
             if ok:
                 root.after(0, lambda: status_label.config(text="Download finished."))
             else:
@@ -223,16 +154,7 @@ def get_user_input_gui() -> tuple[str, str, str]:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        # Parse quality
-        if quality.endswith('p'):
-            selected = int(quality[:-1])
-        elif quality == "best (best available)":
-            selected = 'best'
-        elif quality == "audio-only":
-            selected = 'audio'
-        else:
-            selected = quality
-
+        selected = parse_quality_choice(quality)
         format_expr = choose_format_expr_for_height(selected)
         outtmpl = os.path.join(output_dir, '%(title)s.%(ext)s')
 
@@ -271,41 +193,30 @@ def get_user_input_console(url_arg: Optional[str] = None) -> tuple[str, str]:
         print('  pip install -r requirements.txt')
         return '', ''
 
-    # Extract information about the video without downloading
-    ydl = YoutubeDL({'quiet': True})
     try:
-        info = ydl.extract_info(url, download=False)
+        info = fetch_info(url)
     except Exception as e:
         print('Failed to fetch video info:', e)
         return '', ''
 
     heights = list_available_resolutions(info)
+    if not heights:
+        print('\n  (no discrete video heights detected)')
 
+    labels = build_quality_options(heights)
     print('\nAvailable qualities:')
-    options = []
-    if heights:
-        for i, h in enumerate(heights, start=1):
-            print(f"{i}. {h}p")
-            options.append(h)
-    else:
-        print('  (no discrete video heights detected)')
+    for i, label in enumerate(labels, start=1):
+        print(f"{i}. {label}")
 
-    # add best and audio-only as options
-    print(f"{len(options) + 1}. best (best available)")
-    options.append('best')
-    print(f"{len(options) + 1}. audio-only")
-    options.append('audio')
-
-    choice = input(f"Choose quality [1-{len(options)}] (default 1): ").strip()
+    choice = input(f"Choose quality [1-{len(labels)}] (default 1): ").strip()
     try:
         idx = int(choice) - 1 if choice else 0
     except Exception:
         idx = 0
-    if idx < 0 or idx >= len(options):
+    if idx < 0 or idx >= len(labels):
         idx = 0
 
-    selected = options[idx]
-    return url, selected
+    return url, parse_quality_choice(labels[idx])
 
 
 def main() -> None:
@@ -319,16 +230,20 @@ def main() -> None:
         args = parser.parse_args()
 
         # check ffmpeg is available
-        if shutil.which('ffmpeg') is None:
+        ffmpeg_path = resolve_ffmpeg()
+        if ffmpeg_path is None:
             print('\nERROR: ffmpeg is not found on your PATH. This tool requires the ffmpeg binary to merge audio + video.')
             print('Run `bash install_deps.sh` (macOS/Linux) or `install_deps.ps1` from PowerShell (Windows) to install the required dependencies.')
             return
 
-        if args.console:
-            url, selected = get_user_input_console(args.url)
-            output_dir = args.output
-        else:
-            url, selected, output_dir = get_user_input_gui()
+        if not args.console:
+            # The GUI performs the download itself in a worker thread, so there
+            # is nothing left to do once its window closes.
+            get_user_input_gui()
+            return
+
+        url, selected = get_user_input_console(args.url)
+        output_dir = args.output
 
         if not url or not selected:
             return
@@ -341,7 +256,7 @@ def main() -> None:
         format_expr = choose_format_expr_for_height(selected)
 
         print(f"\nSelected: {selected} -> using format expression: {format_expr}")
-        ok = download(url, format_expr, outtmpl, args.playlist)
+        ok = download(url, format_expr, outtmpl, args.playlist, ffmpeg_location=ffmpeg_path)
         if ok:
             print('\nDownload finished.')
         else:
@@ -354,4 +269,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-
