@@ -88,14 +88,37 @@ Layout:
 | `ytdownloader.py` | Desktop front-end (tkinter GUI + console) |
 | `main.py` | Android front-end (Kivy). buildozer requires this filename. |
 | `buildozer.spec` | Android packaging config |
+| `p4a-recipes/kivy/` | Local recipe override — see "Why kivy's recipe is patched" |
 
 ### Building the APK
 
-Builds run on GitHub Actions (`.github/workflows/android.yml`) — push to `main`, or trigger the workflow manually. The APK is attached to the run as an artifact and published as a Release.
+Builds run on GitHub Actions (`.github/workflows/android.yml`). The APK is attached to the run as an artifact; a public Release is published only from `main`, so branch builds never publish an unverified APK.
 
-Do **not** try to run buildozer directly on macOS; it targets Linux. Use CI, or Docker if you want local builds.
+Do **not** try to run buildozer directly on macOS; it targets Linux. Use CI, or Docker if you want local builds — and note the official image is `linux/amd64`, so on Apple Silicon it runs under emulation and the ffmpeg compile becomes impractically slow.
 
-The first build takes roughly 30–60 minutes because ffmpeg is compiled from source. Later builds are cached and much faster.
+Measured build times: **916s** cold, **61s** warm from cache. The cold cost is ffmpeg compiling from source. Output is a 33 MB APK.
+
+CI asserts that `lib/arm64-v8a/libffmpegbin.so` is present in the finished APK and fails the build if it is not, so the assumption the whole design rests on is re-proven on every build.
+
+### Why kivy's recipe is patched
+
+`p4a-recipes/kivy/` overrides python-for-android's kivy recipe to drop `requests` from its `python_depends`.
+
+`requests` pulls in charset-normalizer, which from 3.5.0 publishes PEP 738 Android wheels. That trips a p4a bug: requirements are resolved with `pip --dry-run --only-binary=:all: --platform=android_24_arm64_v8a`, so pip picks an Android wheel, but the resolved set is then installed with plain `pip install --no-deps` and no `--platform`, so the host pip rejects the wheel it just chose:
+
+```
+charset_normalizer-3.5.1-cp314-cp314-android_24_arm64_v8a.whl
+is not a supported wheel on this platform
+```
+
+Pinning does not help — kivy's `python_depends` are resolved in a different pip pass from the project's own requirements, so a pin in `buildozer.spec` never constrains them. The app uses neither `kivy.network.urlrequest` nor `kivy.garden`, the only parts of Kivy that need `requests`, so dropping it is safe. The override subclasses the upstream recipe and redirects `get_recipe_dir()` back to upstream so kivy's patches still resolve.
+
+Remove the override once p4a passes `--platform` to its install step.
+
+### Other things that bite
+
+- `android.accept_sdk_license = True` is **required** for unattended builds. It defaults to `False`, and without it buildozer runs `sdkmanager` but never answers its interactive `(y/N)` prompt, so build-tools is never installed and the build fails with a misleading `Aidl not found`.
+- Do not use `ArtemSBulgakov/buildozer-action`; it adds `ppa:openjdk-r/ppa` on top of a base image that is now `ubuntu:26.04`, which that PPA does not publish for, so the action cannot build. The official `kivy/buildozer` image already ships `openjdk-17-jdk`.
 
 ### How ffmpeg works on Android
 
