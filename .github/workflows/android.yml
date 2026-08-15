@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -76,19 +76,38 @@ jobs:
           key: buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: buildozer-
 
+      # Use the official kivy/buildozer image rather than a third-party action.
+      # ArtemSBulgakov/buildozer-action fails to build: it adds
+      # ppa:openjdk-r/ppa on top of the base image, which is now ubuntu:26.04,
+      # a release that PPA does not publish for. The base image already ships
+      # openjdk-17-jdk, so the PPA was redundant anyway.
+      # The image entrypoint maps the container user to the bind mount's
+      # UID/GID, so files it writes stay owned by the runner.
       - name: Build APK
         if: steps.bump.outputs.build == 'true'
-        uses: ArtemSBulgakov/buildozer-action@v1.2.0
-        id: buildozer
-        with:
-          command: buildozer android debug
-          buildozer_version: stable
+        run: |
+          mkdir -p "$HOME/.buildozer"
+          docker run --rm \
+            --volume "$HOME/.buildozer":/home/user/.buildozer \
+            --volume "$PWD":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest android debug
+
+      - name: Locate APK
+        id: apk
+        if: steps.bump.outputs.build == 'true'
+        run: |
+          APK=$(ls bin/*.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            echo "No APK produced in bin/"; ls -la bin/ 2>/dev/null || true; exit 1
+          fi
+          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "Built $APK ($(du -h "$APK" | cut -f1))"
 
       - uses: actions/upload-artifact@v4
         if: steps.bump.outputs.build == 'true'
         with:
           name: ytdownloader-apk
-          path: ${{ steps.buildozer.outputs.filename }}
+          path: ${{ steps.apk.outputs.path }}
 
       # Only main publishes a public Release. Branch builds stop at the
       # uploaded artifact, so an unverified APK is never published.
@@ -98,5 +117,5 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: yt-dlp ${{ steps.bump.outputs.version }} (build ${{ github.run_number }})
-          files: ${{ steps.buildozer.outputs.filename }}
+          files: ${{ steps.apk.outputs.path }}
           generate_release_notes: true
