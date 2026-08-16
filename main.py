@@ -297,7 +297,9 @@ class DownloaderLayout(BoxLayout):
         self.set_status('Starting download...')
 
         selected = parse_quality_choice(quality)
-        fmt = choose_format_expr_for_height(selected)
+        # The bundled ffmpeg has no audio encoder, so keep audio in its native
+        # AAC form (.m4a) rather than re-encoding to MP3.
+        fmt = choose_format_expr_for_height(selected, prefer_native_audio=IS_ANDROID)
         outtmpl = os.path.join(storage_dir(), '%(title)s.%(ext)s')
         threading.Thread(target=self._download_worker, args=(url, fmt, outtmpl),
                          daemon=True).start()
@@ -306,7 +308,8 @@ class DownloaderLayout(BoxLayout):
         try:
             download(url, fmt, outtmpl, playlist=False,
                      progress_hook=self.progress_hook,
-                     ffmpeg_location=self.ffmpeg_path)
+                     ffmpeg_location=self.ffmpeg_path,
+                     convert_audio_to_mp3=not IS_ANDROID)
             self._publish_new_files()
         except Exception as e:
             # The exception text is the only diagnostic available on device, so

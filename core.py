@@ -120,15 +120,19 @@ def list_available_resolutions(info: dict) -> List[int]:
     return sorted(heights, reverse=True)
 
 
-def choose_format_expr_for_height(height) -> str:
+def choose_format_expr_for_height(height, prefer_native_audio: bool = False) -> str:
     """Return a yt-dlp format expression for the given height or special keys.
 
     height can be an int (e.g. 1080), or the strings 'best' or 'audio'.
+
+    `prefer_native_audio` asks for an already-AAC stream so it can be saved as
+    .m4a without re-encoding. Required on Android, where the bundled ffmpeg has
+    no audio encoder -- see `download`.
     """
     if height == 'best':
         return 'bestvideo+bestaudio/best'
     if height == 'audio':
-        return 'bestaudio'
+        return 'bestaudio[ext=m4a]/bestaudio' if prefer_native_audio else 'bestaudio'
     # numeric height
     try:
         h = int(height)
@@ -175,7 +179,8 @@ def parse_quality_choice(choice: str):
 
 def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
              playlist: bool = False, progress_hook=None,
-             ffmpeg_location: Optional[str] = None) -> bool:
+             ffmpeg_location: Optional[str] = None,
+             convert_audio_to_mp3: bool = True) -> bool:
     """Download `url` using the given yt-dlp format expression.
 
     `ffmpeg_location` should be the path returned by `resolve_ffmpeg()`. When it
@@ -205,16 +210,23 @@ def download(url: str, format_expr: str, outtmpl: str = '%(title)s.%(ext)s',
     if ffmpeg_location:
         ydl_opts['ffmpeg_location'] = ffmpeg_location
 
-    # If audio-only is selected, convert to mp3
-    if format_expr == 'bestaudio':
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
+    if format_expr.startswith('bestaudio'):
         # Remove merge_output_format for audio only to avoid conflicts
-        if 'merge_output_format' in ydl_opts:
-            del ydl_opts['merge_output_format']
+        ydl_opts.pop('merge_output_format', None)
+
+        if convert_audio_to_mp3:
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+        # Otherwise keep the downloaded stream as-is. python-for-android's
+        # ffmpeg is built with no encoders at all (its recipe enables only
+        # parsers, decoders, muxers and demuxers for mp4), and MP3 additionally
+        # needs libmp3lame, which p4a never builds. Asking for mp3 there fails.
+        # YouTube audio is already AAC, so saving it unchanged as .m4a needs no
+        # encoder and loses no quality. Video merging still works, because that
+        # only needs the mp4/mov muxers and a stream copy.
 
     with YoutubeDL(ydl_opts) as ydl:
         log.info('Starting download (format: %s)...', format_expr)

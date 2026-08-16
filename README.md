@@ -100,6 +100,20 @@ Measured build times: **916s** cold, **61s** warm from cache. The cold cost is f
 
 CI asserts that `lib/arm64-v8a/libffmpegbin.so` is present in the finished APK and fails the build if it is not, so the assumption the whole design rests on is re-proven on every build.
 
+### Audio is saved as .m4a on Android, not .mp3
+
+The bundled ffmpeg can mux but not encode. python-for-android's recipe enables only parsers, decoders, muxers and demuxers for mp4 — there is **no `--enable-encoder` line at all** — and MP3 additionally needs `libmp3lame`, which p4a never builds. So `FFmpegExtractAudio → mp3` has no encoder to call and fails.
+
+YouTube already serves audio as AAC, so on Android the app requests `bestaudio[ext=m4a]` and saves the stream unchanged. No encoder is involved, nothing is re-encoded, and no quality is lost. `.m4a` plays natively on Android.
+
+Video is unaffected: merging needs only the `mp4`/`mov` muxers, which are enabled, plus a stream copy. Desktop still produces MP3, since a normal ffmpeg has `libmp3lame`.
+
+Restoring MP3 on Android would mean adding `ffpyplayer_codecs` to the requirements — which enables all encoders plus libx264, libvpx and libshine — at a large cost in build time and APK size, and yt-dlp asks for `libmp3lame` specifically, which even that does not provide.
+
+### Known limitation: no JavaScript runtime
+
+Recent yt-dlp warns that extraction without a JS runtime is deprecated and "some formats may be missing". There is no deno or equivalent inside the APK. Extraction currently works, but this may need revisiting if YouTube tightens it.
+
 ### Why kivy's recipe is patched
 
 `p4a-recipes/kivy/` overrides python-for-android's kivy recipe to drop `requests` from its `python_depends`.
